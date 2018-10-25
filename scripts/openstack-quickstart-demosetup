@@ -110,6 +110,10 @@ if [ "x$with_monasca" = "xyes" ]; then
                      zookeeper-server
 fi
 
+if [ "x$with_watcher" = "xyes" ]; then
+    install_packages openstack-watcher
+fi
+
 if [ "$DB" = "postgresql" ] ; then
     if grep -q "SUSE Linux Enterprise Server 11" /etc/SuSE-release; then
         install_packages postgresql91-server python-psycopg2
@@ -1109,6 +1113,39 @@ EOF
 
     start_and_enable_service  openstack-monasca-agent
 fi
+
+#-----------------------------------------
+# setup OpenStack Watcher
+#-----------------------------------------
+if [ "x$with_watcher" = "xyes" ]; then
+    c="/etc/watcher/watcher.conf.d/100-watcher.conf"
+    setup_messaging_client $c $IP $pw
+    crudini --set $c DEFAULT control_exchange watcher
+    crudini --set $c DEFAULT bindir "/usr/bin"
+    crudini --set $c database connection "$DB://watcher:${mpw}@${IP}/watcher"
+    crudini --set $c api host $IP
+    crudini --set $c oslo_policy policy_file $WATCHER_POLICY_YAML
+
+    nc=/etc/nova/nova.conf.d/100-nova.conf
+    crudini --set $nc oslo_messaging_notifications topics "notifications,watcher_notifications"
+    crudini --set $nc notifications notify_on_state_change "vm_and_task_state"
+
+    setup_keystone_authtoken $WATCHER_CONF watcher $WATCHER_AUTH_CACHE_DIR
+    setup_keystone_authtoken $WATCHER_CONF watcher $WATCHER_AUTH_CACHE_DIR "watcher_clients_auth"
+
+
+#    if [ -n "$WATCHER_STATE_PATH" ]; then
+#        crudini --set $c DEFAULT state_path "$WATCHER_STATE_PATH"
+#        crudini --set $c oslo_concurrency lock_path "$WATCHER_STATE_PATH"
+#    fi
+
+    install -m 644 /etc/apache2/conf.d/watcher.conf{.sample,}
+
+    #TODO(sum12)
+    #start_and_enable_service openstack-watcher
+fi
+
+
 
 #-----------------------------------------
 # setup tempest configuration
